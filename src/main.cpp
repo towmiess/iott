@@ -209,8 +209,8 @@ void setup() {
     // Khởi tạo các task FreeRTOS để chạy song song
     xTaskCreate(WiFiTask, "WiFiTask", 4096, NULL, 1, NULL);
     xTaskCreate(MQTTTask, "MQTTTask", 4096, NULL, 1, NULL);
-    xTaskCreate(DHTTask, "DHTTask", 4096, NULL, 1, NULL);
-    xTaskCreate(FanControlTask, "FanControlTask", 4096, NULL, 1, NULL);
+    xTaskCreate(DHTTask, "DHTTask", 4096, NULL, 3, NULL);
+    xTaskCreate(FanControlTask, "FanControlTask", 4096, NULL, 2, NULL);
 }
 
 // 🔄 Loop chính, chỉ chạy Blynk
