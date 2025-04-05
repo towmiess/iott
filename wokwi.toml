@@ -1,0 +1,3 @@
+[wokwi]
+version = 1
+elf = ".pio/build/esp32doit-devkit-v1/firmware.elf"
