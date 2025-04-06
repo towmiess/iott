@@ -9,11 +9,18 @@
 #include <BlynkSimpleEsp32.h>
 #include <PubSubClient.h>
 #include <WiFiClientSecure.h>
-
+#include <FirebaseESP32.h>
 
 // 🔹 Cấu hình WiFi
 #define WIFI_SSID "towmiess"
 #define WIFI_PASSWORD "12345678"
+
+// 🔹 Cấu hình Firebase
+#define FIREBASE_HOST "https://dht11-125c7-default-rtdb.firebaseio.com/"
+#define FIREBASE_AUTH "gcvJ7k7KyjJYpLawuXZAEBymwm4aW6yFgZY56Zcq"
+FirebaseData firebaseData;
+FirebaseAuth firebaseAuth;
+FirebaseConfig firebaseConfig;
 
 // 🔹 Cấu hình DHT11
 #define DHT_PIN 15
@@ -171,6 +178,36 @@ void FanControlTask(void *pvParameters) {
     }
 }
 
+// 📡 Gửi dữ liệu lên Firebase
+void FirebaseTask(void *pvParameters) {
+    // Cấu hình Firebase
+    firebaseConfig.database_url = FIREBASE_HOST;
+    firebaseAuth.user.email = "";
+    firebaseAuth.user.password = "";
+    firebaseConfig.signer.tokens.legacy_token = FIREBASE_AUTH;
+
+    Firebase.begin(&firebaseConfig, &firebaseAuth);
+    Firebase.reconnectWiFi(true);
+
+    while (true) {
+        if (WiFi.status() == WL_CONNECTED && Firebase.ready()) {
+            // 🔐 Đọc nhiệt độ từ biến dùng mutex
+            xSemaphoreTake(tempMutex, portMAX_DELAY);
+            float temp = lastTemperature;
+            xSemaphoreGive(tempMutex);
+
+            // Gửi nhiệt độ và độ ẩm lên Firebase
+            String path = "/esp32";
+            Firebase.setFloat(firebaseData, path + "/temperature", temp);
+            Firebase.setFloat(firebaseData, path + "/humidity", dht.readHumidity());
+        } else {
+            Serial.println("⚠️ Firebase chưa sẵn sàng hoặc WiFi mất kết nối!");
+        }
+
+        vTaskDelay(5000 / portTICK_PERIOD_MS); // Gửi mỗi 5 giây
+    }
+}
+
 // 📡 Nhận lệnh từ Blynk
 BLYNK_WRITE(V4) {
     // 🛠️ Nhận dữ liệu từ Blynk để bật/tắt chế độ quạt tự động
@@ -211,6 +248,8 @@ void setup() {
     xTaskCreate(MQTTTask, "MQTTTask", 4096, NULL, 1, NULL);
     xTaskCreate(DHTTask, "DHTTask", 4096, NULL, 1, NULL);
     xTaskCreate(FanControlTask, "FanControlTask", 4096, NULL, 1, NULL);
+    xTaskCreate(FirebaseTask, "FirebaseTask", 4096, NULL, 1, NULL);
+
 }
 
 // 🔄 Loop chính, chỉ chạy Blynk
