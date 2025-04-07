@@ -1,169 +1,194 @@
-/**
- * Created by K. Suwatchai (Mobizt)
- *
- * Email: k_suwatchai@hotmail.com
- *
- * Github: https://github.com/mobizt/Firebase-ESP32
- *
- * Copyright (c) 2023 mobizt
- *
- */
+#define BLYNK_TEMPLATE_ID "TMPL6vcy_-5sj"
+#define BLYNK_TEMPLATE_NAME "RELAY MOLSUTURE"
+#define BLYNK_AUTH_TOKEN "1kj1ZPzHix86IgCU3A_4nD-_arw7TK42"
 
-// This example shows the basic usage of Blynk platform and Firebase RTDB.
+#define BLYNK_PRINT Serial
+#define APP_DEBUG
 
-#include <Arduino.h>
 #include <WiFi.h>
+#include <Arduino.h>
+#include <PubSubClient.h>
+#include <WiFiClientSecure.h>
 #include <FirebaseESP32.h>
+#include <BlynkSimpleEsp32.h>
 
-// Provide the token generation process info.
-#include <addons/TokenHelper.h>
+// MQTT cấu hình
+#define MQTT_SERVER "e644ce5e89354e76856d7f082f98aff4.s1.eu.hivemq.cloud"
+#define MQTT_PORT 8883
+#define MQTT_USER "NTV_N5_IOT"
+#define MQTT_PASSWORD "Viet0000@"
+#define MQTT_TOPIC "tuoi_cay/soil_moisture"
 
-// Provide the RTDB payload printing info and other helper functions.
-#include <addons/RTDBHelper.h>
-
-#include <BlynkSimpleEsp8266.h>
-
-/* 1. Define the WiFi credentials */
-#define WIFI_SSID "WIFI_AP"
-#define WIFI_PASSWORD "WIFI_PASSWORD"
-
-// For the following credentials, see examples/Authentications/SignInAsUser/EmailPassword/EmailPassword.ino
-
-/* 2. Define the API Key */
-#define API_KEY "API_KEY"
-
-/* 3. Define the RTDB URL */
-#define DATABASE_URL "URL" //<databaseName>.firebaseio.com or <databaseName>.<region>.firebasedatabase.app
-
-/* 4. Define the user Email and password that alreadey registerd or added in your project */
-#define USER_EMAIL "USER_EMAIL"
-#define USER_PASSWORD "USER_PASSWORD"
-
-// Define Firebase Data object
-FirebaseData fbdo;
-FirebaseData stream;
-
+// Firebase
+FirebaseData firebaseData;
 FirebaseAuth auth;
 FirebaseConfig config;
 
-// Debug Blynk to serial port
-#define BLYNK_PRINT Serial
+// Cảm biến & Relay
+const int soilMoisturePin = 35;
+const int relayPin = 27;
+unsigned long lastMillis = 0;
+const int interval = 5000;
 
-// Auth token for your Blynk app project
-#define BLYNK_AUTH "YOUR_BLYNK_APP_PROJECT_AUTH_TOKEN"
+// Blynk
+bool isManualMode = false;        // Mặc định là Auto
+bool manualRelayState = false;
 
-String path = "/Blynk_Test/Int";
+WiFiClientSecure espClient;
+PubSubClient mqttClient(espClient);
 
-// D4 or GPIO2 on Wemos D1 mini
-uint8_t BuiltIn_LED = 2;
-
-/**
- * Blynk app Widget setup
- * **********************
- *
- * 1. Button Widget (Switch type), Output -> Virtual pin V1
- * 2. LED Widget, Input -> Virtual pin V2
- */
-WidgetLED led(V2);
-
-void setup()
-{
-
-  Serial.begin(115200);
-
-  pinMode(BuiltIn_LED, OUTPUT);
-
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-  Serial.print("Connecting to Wi-Fi");
-  while (WiFi.status() != WL_CONNECTED)
-  {
-    Serial.print(".");
-    delay(300);
+// Gửi dữ liệu lên Firebase
+void sendToFirebase(int soilMoisture) {
+  String path = "/sensor_data/soil_moisture";
+  if (Firebase.setInt(firebaseData, path, soilMoisture)) {
+    Serial.println(" Đã gửi dữ liệu lên Firebase!");
+  } else {
+    Serial.print(" Lỗi Firebase: ");
+    Serial.println(firebaseData.errorReason());
   }
-  Serial.println();
-  Serial.print("Connected with IP: ");
-  Serial.println(WiFi.localIP());
-  Serial.println();
-
-  Serial.printf("Firebase Client v%s\n\n", FIREBASE_CLIENT_VERSION);
-
-  /* Assign the api key (required) */
-  config.api_key = API_KEY;
-
-  /* Assign the user sign in credentials */
-  auth.user.email = USER_EMAIL;
-  auth.user.password = USER_PASSWORD;
-
-  /* Assign the RTDB URL (required) */
-  config.database_url = DATABASE_URL;
-
-  /* Assign the callback function for the long running token generation task */
-  config.token_status_callback = tokenStatusCallback; // see addons/TokenHelper.h
-
-  // Comment or pass false value when WiFi reconnection will control by your code or third party library e.g. WiFiManager
-  Firebase.reconnectNetwork(true);
-
-  // Since v4.4.x, BearSSL engine was used, the SSL buffer need to be set.
-  // Large data transmission may require larger RX buffer, otherwise connection issue or data read time out can be occurred.
-  fbdo.setBSSLBufferSize(4096 /* Rx buffer size in bytes from 512 - 16384 */, 1024 /* Tx buffer size in bytes from 512 - 16384 */);
-
-  // Or use legacy authenticate method
-  // config.database_url = DATABASE_URL;
-  // config.signer.tokens.legacy_token = "<database secret>";
-
-  // To connect without auth in Test Mode, see Authentications/TestMode/TestMode.ino
-
-  Firebase.begin(&config, &auth);
-
-  if (!Firebase.beginStream(stream, "/test/blynk/int"))
-    Serial.printf("sream begin error, %s\n\n", stream.errorReason().c_str());
-
-  Blynk.begin(BLYNK_AUTH, WIFI_SSID, WIFI_PASSWORD);
 }
 
-void loop()
-{
+// Nhận dữ liệu từ MQTT
+void callbackMQTT(char* topic, byte* payload, unsigned int length) {
+  Serial.print(" Nhận từ MQTT: ");
+  Serial.println(topic);
 
-  Blynk.run();
+  String message = "";
+  for (unsigned int i = 0; i < length; i++) {
+    message += (char)payload[i];
+  }
 
-  // Firebase.ready() should be called repeatedly to handle authentication tasks.
+  int soilMoisture = message.toInt();
+  Serial.print(" Độ ẩm từ MQTT: ");
+  Serial.println(soilMoisture);
 
-  if (Firebase.ready())
-  {
-    if (!Firebase.readStream(stream))
-      Serial.printf("sream read error, %s\n\n", stream.errorReason().c_str());
+  sendToFirebase(soilMoisture);
+}
 
-    if (stream.streamTimeout())
-      Serial.println("stream timeout, resuming...\n");
+// Kết nối MQTT
+void connectMQTT() {
+  espClient.setInsecure();
+  mqttClient.setServer(MQTT_SERVER, MQTT_PORT);
+  mqttClient.setCallback(callbackMQTT);
+  mqttClient.setBufferSize(512);
 
-    if (stream.streamAvailable())
-    {
-
-      Serial.printf("sream path, %s\nevent path, %s\ndata type, %s\nevent type, %s\nvalue, %d\n\n",
-                    stream.streamPath().c_str(),
-                    stream.dataPath().c_str(),
-                    stream.dataType().c_str(),
-                    stream.eventType().c_str(),
-                    stream.intData());
-
-      if (stream.dataType() == "int")
-      {
-        if (stream.intData() == 1)
-        {
-          digitalWrite(BuiltIn_LED, HIGH);
-          led.on();
-        }
-        else
-        {
-          digitalWrite(BuiltIn_LED, LOW);
-          led.off();
-        }
-      }
+  while (!mqttClient.connected()) {
+    Serial.print(" Kết nối MQTT...");
+    if (mqttClient.connect("ESP32_Client", MQTT_USER, MQTT_PASSWORD)) {
+      Serial.println(" OK!");
+      mqttClient.subscribe(MQTT_TOPIC);
+    } else {
+      Serial.print(" Lỗi MQTT: ");
+      Serial.println(mqttClient.state());
+      delay(5000);
     }
   }
 }
 
-BLYNK_WRITE(V1)
-{
-  Serial.printf("Set int... %s\n\n", Firebase.setInt(fbdo, "/test/blynk/int", param.asInt()) ? "ok" : fbdo.errorReason().c_str());
+// Kết nối WiFi
+void connectWiFi() {
+  WiFi.begin("DUY PHUC", "ngoquocdat");
+  Serial.print(" Kết nối WiFi...");
+  int attempt = 0;
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+    attempt++;
+    if (attempt > 30) {
+      Serial.println("\n Không kết nối được WiFi! Reset...");
+      ESP.restart();
+    }
+  }
+  Serial.println("\n WiFi kết nối thành công!");
+}
+
+// BLYNK: Điều khiển relay thủ công (V1)
+BLYNK_WRITE(V1) {
+  manualRelayState = param.asInt();
+  if (isManualMode) {
+    digitalWrite(relayPin, manualRelayState ? LOW : HIGH);
+    // Serial.println(manualRelayState ? "THỦ CÔNG: Bật máy bơm" : "THỦ CÔNG: Tắt máy bơm");
+  }
+}
+
+// BLYNK: Hiển thị trạng thái kết nối LED (V0)
+// Tượng trưng =))) 
+void updateConnectionStatus() {
+  if (WiFi.status() == WL_CONNECTED) {
+    Blynk.virtualWrite(V0, 255);
+  } else {
+    Blynk.virtualWrite(V0, 0);
+  }
+}
+
+// BLYNK: Chuyển chế độ Auto <-> Manual (V3)
+BLYNK_WRITE(V3) {
+  isManualMode = param.asInt();
+  if (isManualMode) {
+    Serial.println("Chế độ: THỦ CÔNG");
+  } else {
+    Serial.println("Chế độ: TỰ ĐỘNG");
+    // Khi chuyển sang tự động, tắt relay nếu không cần thiết
+    digitalWrite(relayPin, HIGH);
+  }
+}
+
+void setup() {
+  Serial.begin(115200);
+  pinMode(relayPin, OUTPUT);
+  digitalWrite(relayPin, HIGH); // Tắt máy bơm ban đầu
+
+  connectWiFi();
+  Blynk.begin(BLYNK_AUTH_TOKEN, WiFi.SSID().c_str(), WiFi.psk().c_str());
+
+  // Firebase
+  config.host = "nhom5-iot-9b213-default-rtdb.asia-southeast1.firebasedatabase.app";
+  config.signer.tokens.legacy_token = "krTZyZmVADrnpIB3h1R4ztoRpic61RM5lc0UnS8k";
+  Firebase.begin(&config, &auth);
+  Firebase.reconnectWiFi(true);
+
+  connectMQTT();
+}
+
+void loop() {
+  mqttClient.loop();
+  Blynk.run();
+
+  // Cập nhật trạng thái kết nối WiFi
+  updateConnectionStatus();
+  
+  if (!mqttClient.connected()) {
+    connectMQTT();
+  }
+
+  if (millis() - lastMillis > interval) {
+    int soilMoisture = analogRead(soilMoisturePin);
+    soilMoisture = map(soilMoisture, 0, 4095, 100, 0);
+
+    Serial.print("Độ ẩm đất: ");
+    Serial.print(soilMoisture);
+    Serial.println("%");
+
+    // Gửi về Blynk
+    Blynk.virtualWrite(V2, soilMoisture);
+
+    // Điều khiển tự động nếu đang ở chế độ Auto
+    if (!isManualMode) {
+      if (soilMoisture < 30 && digitalRead(relayPin) == HIGH) {
+        Serial.println("TỰ ĐỘNG: Bật máy bơm...");
+        digitalWrite(relayPin, LOW);
+      } else if (soilMoisture >= 30 && digitalRead(relayPin) == LOW) {
+        Serial.println("TỰ ĐỘNG: Tắt máy bơm...");
+        digitalWrite(relayPin, HIGH);
+      }
+    }
+
+    // Gửi MQTT
+    mqttClient.publish(MQTT_TOPIC, String(soilMoisture).c_str());
+
+    // Gửi Firebase
+    sendToFirebase(soilMoisture);
+
+    lastMillis = millis();
+  }
 }
