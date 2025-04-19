@@ -1,6 +1,7 @@
-#define BLYNK_TEMPLATE_ID "TMPL61L3TvdTi"
-#define BLYNK_TEMPLATE_NAME "DoorControl"
-#define BLYNK_AUTH_TOKEN "52phsJBj_2vQyeMqA_066Co5lfY-uj8_"
+#define BLYNK_TEMPLATE_ID "TMPL6MqMFPbAp"
+#define BLYNK_TEMPLATE_NAME "IOTN5 ESP32 DHT11 FAN"
+#define BLYNK_AUTH_TOKEN "npjZsmVBGbYBMZv14oLN1tcFthiGBG8c"
+#define VIRTUAL_PIN V0
 
 #include <ArduinoWebsockets.h>
 #include "esp_http_server.h"
@@ -13,12 +14,15 @@
 #include "fr_flash.h"
 #include <BlynkSimpleEsp32.h>
 
+const char* auth = BLYNK_AUTH_TOKEN;
 const char* ssid = "towmiess";
-const char* password = "12345678";
+const char* password = "123456789";
 
-//https://console.firebase.google.com/project/xxxxxxxxxx/settings/serviceaccounts/databasesecrets
-String FIREBASE_HOST = "https://esp32cam-c2802-default-rtdb.firebaseio.com/";
-String FIREBASE_AUTH = "a07sfQh01EDP5w5SoyRWr61cO9rIZ9WzCjpmipUR";
+BlynkTimer timer;
+bool doorState = false;
+
+String FIREBASE_HOST = "https://dht11-125c7-default-rtdb.firebaseio.com/";
+String FIREBASE_AUTH = "gcvJ7k7KyjJYpLawuXZAEBymwm4aW6yFgZY56Zcq";
 
 #include "FirebaseESP32.h"
 FirebaseData firebaseData;
@@ -106,45 +110,14 @@ typedef struct
 
 httpd_resp_value st_name;
 
-BlynkTimer timer;
-
 void setup() {
   Serial.begin(115200);
   Serial.setDebugOutput(true);
   Serial.println();
-  Serial.println("ssid: " + (String)ssid);
-  Serial.println("password: " + (String)password);
   
   digitalWrite(relay_pin, HIGH);
   pinMode(relay_pin, OUTPUT);
   pinMode(led_pin, OUTPUT); // Set GPIO12 as output for LED
-
-  WiFi.begin(ssid, password);
-  Blynk.begin(BLYNK_AUTH_TOKEN, ssid, password);
-
-  long int StartTime=millis();
-  while (WiFi.status() != WL_CONNECTED) {
-      delay(500);
-      if ((StartTime+10000) < millis()) break;
-  } 
-
-  if (WiFi.status() == WL_CONNECTED) {
-    char* apssid = "ESP32-CAM";
-    char* appassword = "12345678";         //AP password require at least 8 characters.
-    Serial.println("");
-    app_httpserver_init();
-    app_facenet_main();
-    socket_server.listen(82);  
-    Serial.print("Camera Ready! Use 'http://");
-    Serial.print(WiFi.localIP());
-    Serial.println("' to connect");
-    WiFi.softAP((WiFi.localIP().toString()+"_"+(String)apssid).c_str(), appassword);  
-             
-  }
-  else {
-    Serial.println("Connection failed");
-    return;
-  } 
 
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
@@ -187,8 +160,7 @@ void setup() {
   esp_err_t err = esp_camera_init(&config);
   if (err != ESP_OK) {
     Serial.printf("Camera init failed with error 0x%x", err);
-    delay(1000);
-    ESP.restart();
+    return;
   }
 
   sensor_t * s = esp_camera_sensor_get();
@@ -198,24 +170,73 @@ void setup() {
   s->set_vflip(s, 1);
   s->set_hmirror(s, 1);
 #endif
-
-  Firebase.begin(FIREBASE_HOST, FIREBASE_AUTH);
-  Firebase.reconnectWiFi(true);
-  Firebase.setMaxRetry(firebaseData, 3);
-  Firebase.setMaxErrorQueue(firebaseData, 30); 
-  Firebase.enableClassicRequest(firebaseData, true);
-
-  String jsonData = "{\"photo\":\"" + Photo2Base64() + "\"}";
-  String photoPath = "/esp32-cam";
-  if (Firebase.pushJSON(firebaseData, photoPath, jsonData)) {
-    Serial.println(firebaseData.dataPath());
-    Serial.println(firebaseData.pushName());
-    Serial.println(firebaseData.dataPath() + "/"+ firebaseData.pushName());
-  } else {
-    Serial.println(firebaseData.errorReason());
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
   }
-}
+  Serial.println("");
+  Serial.println("WiFi connected");
+
+  app_httpserver_init();
+  app_facenet_main();
+  socket_server.listen(82);
   
+  Serial.print("Camera Ready! Use 'http://");
+  Serial.print(WiFi.localIP());
+  Serial.println("' to connect");
+  
+  xTaskCreatePinnedToCore(
+        captureAndUploadTask,  // Hàm xử lý
+        "CaptureAndUpload",    // Tên task
+        8192,                  // Kích thước stack
+        NULL,                  // Tham số đầu vào
+        1,                     // Mức ưu tiên
+        NULL,                  // Handle
+        1                      // Chạy trên core 1 (ESP32 có 2 core)
+    );
+  xTaskCreatePinnedToCore(
+      blynkTask,
+      "BlynkTask",
+      4096,
+      NULL,
+      1,
+      NULL,
+      1
+    );
+
+}
+void captureAndUploadTask(void *parameter) {
+  if (WiFi.status() == WL_CONNECTED) {
+        Firebase.begin(FIREBASE_HOST, FIREBASE_AUTH);
+        Firebase.reconnectWiFi(true);
+        Firebase.setMaxRetry(firebaseData, 3);
+        Firebase.setMaxErrorQueue(firebaseData, 30); 
+        Firebase.enableClassicRequest(firebaseData, true);
+        Serial.println("Firebase initialized");
+    } else {
+        Serial.println("WiFi not connected, Firebase not initialized.");
+        return;
+    }
+    while (true) {
+        Serial.println("Chụp ảnh và gửi lên Firebase...");
+        String base64Photo = Photo2Base64();
+
+        if (base64Photo == "") {
+            Serial.println("Không thể chụp ảnh!");
+        } else {
+            String jsonData = "{\"photo\":\"" + base64Photo + "\"}";
+            String photoPath = "/esp32-cam";
+            
+            if (Firebase.pushJSON(firebaseData, photoPath, jsonData)) {
+                Serial.println("Ảnh đã gửi lên Firebase");
+            } else {
+                Serial.println("Lỗi gửi ảnh: " + firebaseData.errorReason());
+            }
+        }
+        vTaskDelay(10000 / portTICK_PERIOD_MS); // Chờ 10 giây trước khi chụp ảnh tiếp theo
+    }
+}  
   
 static esp_err_t index_handler(httpd_req_t *req) {
   httpd_resp_set_type(req, "text/html");
@@ -276,6 +297,41 @@ static esp_err_t delete_all_faces(WebsocketsClient &client)
   client.send("delete_faces");
 }
 
+BLYNK_WRITE(V0) {
+  int value = param.asInt(); // 1 hoặc 0
+
+  if (value == 1) {
+    Serial.println("Mở cửa từ Blynk");
+    digitalWrite(relay_pin, LOW);
+    digitalWrite(led_pin, HIGH);
+    door_opened_millis = millis();
+    timer.setTimeout(5000L, []() {
+      digitalWrite(relay_pin, HIGH);
+      digitalWrite(led_pin, LOW);
+      Serial.println("Cửa đã đóng.");
+
+      // Gửi lại trạng thái OFF về Blynk
+      Blynk.virtualWrite(VIRTUAL_PIN, 0);
+    });
+    doorState = true;
+  } else {
+    Serial.println("Đóng cửa từ Blynk");
+    digitalWrite(relay_pin, HIGH);
+    digitalWrite(led_pin, LOW);
+    doorState = false;
+  }
+}
+
+void blynkTask(void * parameter) {
+  Blynk.begin(auth, ssid, password);
+
+  while (true) {
+    Blynk.run();    // xử lý sự kiện
+    timer.run();    // chạy timer nếu cần
+    vTaskDelay(10 / portTICK_PERIOD_MS);  // delay nhỏ tránh chiếm CPU
+  }
+}
+
 void handle_message(WebsocketsClient &client, WebsocketsMessage msg)
 {
   if (msg.data() == "stream") {
@@ -303,16 +359,16 @@ void handle_message(WebsocketsClient &client, WebsocketsMessage msg)
     delete_face_id_in_flash_with_name(&st_face_list, person);
     send_face_list(client); // reset faces in the browser
   }
-  if (msg.data() == "open_door") {
-    digitalWrite(relay_pin, LOW);
-    digitalWrite(led_pin, HIGH);
-    client.send("Door Open!"); 
+  if(msg.data() == "open_door"){
+    digitalWrite(relay_pin, LOW); //close (energise) relay so door unlocks
+    digitalWrite(led_pin, HIGH);  // turn on LED when door is unlocked
     door_opened_millis = millis();
+    client.send("Door Opened!");
   }
-  if (msg.data() == "close_door") {
-    digitalWrite(relay_pin, HIGH);
-    digitalWrite(led_pin, LOW);
-    client.send("Door Close!");
+  if(msg.data() == "close_door"){
+    digitalWrite(relay_pin, HIGH); //close (energise) relay so door unlocks
+    digitalWrite(led_pin, LOW);  // turn on LED when door is unlocked
+    client.send("Door Closed!");
   }
   if (msg.data() == "delete_all") {
     delete_all_faces(client);
@@ -334,26 +390,13 @@ void close_door() {
   digitalWrite(led_pin, LOW);    // turn off LED when door is locked
 }
 
-BLYNK_WRITE(V0) {
-  int value = param.asInt(); // lấy giá trị từ app
-  Serial.println(value);
-
-  if (value == 1) {
-    digitalWrite(relay_pin, LOW);  // mở cửa
-    digitalWrite(led_pin, HIGH);
-    Serial.println("Cửa được mở qua Blynk");
-    door_opened_millis = millis();
-  } else {
-    digitalWrite(relay_pin, HIGH); // đóng cửa
-    digitalWrite(led_pin, LOW);
-    Serial.println("Cửa được đóng qua Blynk");
-  }
-}
-
 void loop() {
-  Blynk.run();
-  timer.run();
-  
+  if (WiFi.status() != WL_CONNECTED) {
+  Serial.println("WiFi mất kết nối. Đang thử lại...");
+  WiFi.disconnect();
+  WiFi.begin(ssid, password);
+  delay(1000);
+}
   auto client = socket_server.accept();
   client.onMessage(handle_message);
   dl_matrix3du_t *image_matrix = dl_matrix3du_alloc(1, 320, 240, 3);
@@ -469,7 +512,6 @@ String Photo2Base64() {
     return imageFile;
 }
 
-//https://www.arduino.cc/reference/en/libraries/urlencode/
 String urlencode(String str) {
   const char *msg = str.c_str();
   const char *hex = "0123456789ABCDEF";
