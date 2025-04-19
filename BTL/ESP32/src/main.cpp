@@ -26,11 +26,18 @@ FirebaseConfig firebaseConfig;
 #define DHT_PIN 15
 #define DHT_TYPE DHT11
 DHT dht(DHT_PIN, DHT_TYPE);
+//🔹 Cấu hình Cảm biến đất
+#define SOIL_SENSOR_PIN 35
 
 // 🔹 Cấu hình Relay (Quạt)
 #define RELAY_FAN_PIN 14
 bool fanState = false;
-bool autoFanControl = true;
+bool autoFanControl = false;
+
+// 🔹 Cấu hình Relay (Máy Bơm)
+#define RELAY_PUMP_PIN 27
+bool PumpState = false;
+bool autoPumpControl = false;
 
 // 🔹 Cấu hình MQTT (HiveMQ)
 #define MQTT_SERVER "e4d6461e44b845fdbc9a32917b240fa3.s1.eu.hivemq.cloud"
@@ -46,6 +53,8 @@ PubSubClient mqttClient(espClient);
 SemaphoreHandle_t wifiMutex;
 SemaphoreHandle_t tempMutex;
 float lastTemperature = 0.0;
+int lastSoilMoisture = 0; // Giá trị độ ẩm đất
+SemaphoreHandle_t soilMutex; 
 
 // 📡 Kết nối WiFi
 void WiFiTask(void *pvParameters) {
@@ -123,7 +132,12 @@ void MQTTTask(void *pvParameters) {
     }
 }
 
-
+int readSoilMoisture() {
+  int analogValue = analogRead(SOIL_SENSOR_PIN);
+  // Tùy theo cảm biến, bạn có thể map về phần trăm như sau:
+  int moisturePercent = map(analogValue, 0, 4095, 100, 0);
+  return moisturePercent;
+}
 
 // 📡 Đọc cảm biến DHT11
 void DHTTask(void *pvParameters) {
@@ -150,6 +164,31 @@ void DHTTask(void *pvParameters) {
         vTaskDelay(5000 / portTICK_PERIOD_MS);
     }
 }
+
+void SoilTask(void *pvParameters) {
+  while (true) {
+      int rawSoil = analogRead(35); // Đọc giá trị từ cảm biến
+      int soilPercent = map(rawSoil, 0, 4095, 100, 0); // Chuyển đổi sang % (tuỳ cảm biến)
+
+      // Giữ quyền truy cập biến soil
+      xSemaphoreTake(soilMutex, portMAX_DELAY);
+      lastSoilMoisture = soilPercent;
+      xSemaphoreGive(soilMutex);
+
+      Serial.printf("🌱 Độ ẩm đất: %d%% (raw: %d)\n", soilPercent, rawSoil);
+
+      // Gửi lên Blynk (ví dụ Virtual Pin V4)
+      Blynk.virtualWrite(V5, soilPercent);
+
+      // Tạo JSON gửi MQTT
+      String mqttMessage = "{\"soil\": " + String(soilPercent) + "}";
+      mqttClient.publish(MQTT_PUBLISH_TOPIC, mqttMessage.c_str());
+
+      vTaskDelay(5000 / portTICK_PERIOD_MS); // Delay 5s
+  }
+}
+
+
 
 // 📡 Điều khiển quạt tự động
 void FanControlTask(void *pvParameters) {
@@ -178,6 +217,33 @@ void FanControlTask(void *pvParameters) {
     }
 }
 
+// 📡 Điều khiển máy bơm tự động
+void PumpControlTask(void *pvParameters) {
+    while (true) {
+        // Đọc độ ẩm đất an toàn
+        xSemaphoreTake(soilMutex, portMAX_DELAY);
+        int soil = lastSoilMoisture;
+        xSemaphoreGive(soilMutex);
+
+        // 🔄 Nếu chế độ tự động bật, điều khiển bơm theo độ ẩm đất
+        if (autoPumpControl) {
+            if (soil < 30 && !PumpState) {
+                PumpState = true;
+                digitalWrite(RELAY_PUMP_PIN, LOW);  // LOW để bật relay
+                Blynk.virtualWrite(V7, 1);
+                Serial.println("💧 Bơm BẬT (Tự động)");
+            } else if (soil >= 50 && PumpState) {
+                PumpState = false;
+                digitalWrite(RELAY_PUMP_PIN, HIGH); // HIGH để tắt relay
+                Blynk.virtualWrite(V7, 0);
+                Serial.println("💧 Bơm TẮT (Tự động)");
+            }
+        }
+
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+    }
+}
+
 // 📡 Gửi dữ liệu lên Firebase
 void FirebaseTask(void *pvParameters) {
     // Cấu hình Firebase
@@ -197,9 +263,17 @@ void FirebaseTask(void *pvParameters) {
             xSemaphoreGive(tempMutex);
 
             // Gửi nhiệt độ và độ ẩm lên Firebase
-            String path = "/esp32";
+            String path = "/DHT11";
             Firebase.setFloat(firebaseData, path + "/temperature", temp);
             Firebase.setFloat(firebaseData, path + "/humidity", dht.readHumidity());
+            // Đọc độ ẩm đất từ biến dùng mutex
+            xSemaphoreTake(soilMutex, portMAX_DELAY);
+            int soil = lastSoilMoisture;
+            xSemaphoreGive(soilMutex);
+
+            // Gửi dữ liệu Soil Moisture
+             String soilPath = "/sensor_data";
+             Firebase.setInt(firebaseData, soilPath + "/soil_moisture", soil);
         } else {
             Serial.println("⚠️ Firebase chưa sẵn sàng hoặc WiFi mất kết nối!");
         }
@@ -227,6 +301,23 @@ BLYNK_WRITE(V1) {
         Blynk.virtualWrite(V1, fanState); // Cập nhật trạng thái hiển thị trên Blynk
     }
 }
+// ⚙️ Nút auto máy bơm - V6
+BLYNK_WRITE(V6) {
+    autoPumpControl = param.asInt();
+    Serial.println(autoPumpControl ? "🟢 Auto Pump: BẬT" : "🔴 Auto Pump: TẮT");
+}
+
+// 👆 Nút điều khiển thủ công - V7
+BLYNK_WRITE(V7) {
+    if (!autoPumpControl) {
+        PumpState = param.asInt();
+        digitalWrite(RELAY_PUMP_PIN, PumpState ? LOW : HIGH);
+        Serial.println(PumpState ? "🖐️ Bật bơm (Thủ công)" : "🖐️ Tắt bơm (Thủ công)");
+    } else {
+        Blynk.virtualWrite(V7, PumpState);  // Phản hồi lại trạng thái thật
+        Serial.println("⛔ Không thể điều khiển máy bơm thủ công khi đang ở chế độ tự động.");
+    }
+}
 
 // 🔹 Cấu hình ESP32
 void setup() {
@@ -237,18 +328,23 @@ void setup() {
     pinMode(RELAY_FAN_PIN, OUTPUT); // Thiết lập chân relay của quạt là OUTPUT
     digitalWrite(RELAY_FAN_PIN, HIGH); // Mặc định tắt quạt khi khởi động
 
+    pinMode(RELAY_PUMP_PIN, OUTPUT);
+    digitalWrite(RELAY_PUMP_PIN, HIGH);  // Tắt bơm ban đầu
     Blynk.begin(BLYNK_AUTH_TOKEN, WIFI_SSID, WIFI_PASSWORD); // Kết nối Blynk
 
     // Tạo mutex để quản lý truy cập WiFi và biến nhiệt độ
     wifiMutex = xSemaphoreCreateMutex();
     tempMutex = xSemaphoreCreateMutex();
+    soilMutex = xSemaphoreCreateMutex();
 
     // Khởi tạo các task FreeRTOS để chạy song song
-    xTaskCreate(WiFiTask, "WiFiTask", 4096, NULL, 1, NULL);
-    xTaskCreate(MQTTTask, "MQTTTask", 4096, NULL, 1, NULL);
-    xTaskCreate(DHTTask, "DHTTask", 4096, NULL, 1, NULL);
-    xTaskCreate(FanControlTask, "FanControlTask", 4096, NULL, 1, NULL);
-    xTaskCreate(FirebaseTask, "FirebaseTask", 4096, NULL, 1, NULL);
+    xTaskCreatePinnedToCore(WiFiTask, "WiFiTask", 4096, NULL, 1, NULL, 1);
+    xTaskCreatePinnedToCore(MQTTTask, "MQTTTask", 4096, NULL, 1, NULL, 1);
+    xTaskCreatePinnedToCore(DHTTask, "DHTTask", 4096, NULL, 1, NULL, 1);
+    xTaskCreatePinnedToCore(SoilTask, "Soil Task", 4096, NULL, 1, NULL, 1);
+    xTaskCreatePinnedToCore(FanControlTask, "FanControlTask", 4096, NULL, 1, NULL, 1);
+    xTaskCreatePinnedToCore(PumpControlTask, "PumpControlTask",4096,NULL,1,NULL,1);
+    xTaskCreatePinnedToCore(FirebaseTask, "FirebaseTask", 10240, NULL, 1, NULL, 1);
 
 }
 

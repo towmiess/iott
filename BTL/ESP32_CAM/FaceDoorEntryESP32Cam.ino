@@ -119,6 +119,35 @@ void setup() {
   pinMode(relay_pin, OUTPUT);
   pinMode(led_pin, OUTPUT); // Set GPIO12 as output for LED
 
+<<<<<<< HEAD
+=======
+  WiFi.begin(ssid, password);
+
+  long int StartTime=millis();
+  while (WiFi.status() != WL_CONNECTED) {
+      delay(500);
+      if ((StartTime+10000) < millis()) break;
+  } 
+
+  if (WiFi.status() == WL_CONNECTED) {
+    char* apssid = "ESP32-CAM";
+    char* appassword = "12345678";         //AP password require at least 8 characters.
+    Serial.println("");
+    app_httpserver_init();
+    app_facenet_main();
+    socket_server.listen(82);  
+    Serial.print("Camera Ready! Use 'http://");
+    Serial.print(WiFi.localIP());
+    Serial.println("' to connect");
+    WiFi.softAP((WiFi.localIP().toString()+"_"+(String)apssid).c_str(), appassword);  
+             
+  }
+  else {
+    Serial.println("Connection failed");
+    return;
+  } 
+
+>>>>>>> 3f0e2b6a4e1d6a8205a4efc439f4d246b4adae96
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
   config.ledc_timer = LEDC_TIMER_0;
@@ -170,6 +199,7 @@ void setup() {
   s->set_vflip(s, 1);
   s->set_hmirror(s, 1);
 #endif
+<<<<<<< HEAD
   WiFi.begin(ssid, password);
   while (WiFi.status() != WL_CONNECTED) {
     delay(500);
@@ -186,6 +216,15 @@ void setup() {
   Serial.print(WiFi.localIP());
   Serial.println("' to connect");
   
+=======
+
+  Firebase.begin(FIREBASE_HOST, FIREBASE_AUTH);
+  Firebase.reconnectWiFi(true);
+  Firebase.setMaxRetry(firebaseData, 3);
+  Firebase.setMaxErrorQueue(firebaseData, 30); 
+  Firebase.enableClassicRequest(firebaseData, true);
+
+>>>>>>> 3f0e2b6a4e1d6a8205a4efc439f4d246b4adae96
   xTaskCreatePinnedToCore(
         captureAndUploadTask,  // Hàm xử lý
         "CaptureAndUpload",    // Tên task
@@ -196,6 +235,7 @@ void setup() {
         1                      // Chạy trên core 1 (ESP32 có 2 core)
     );
   xTaskCreatePinnedToCore(
+<<<<<<< HEAD
       blynkTask,
       "BlynkTask",
       4096,
@@ -203,10 +243,20 @@ void setup() {
       1,
       NULL,
       1
+=======
+      blynkTask,   // Hàm xử lý
+      "BlynkTask", // Tên task
+      4096,        // Kích thước stack
+      NULL,        // Tham số đầu vào
+      1,           // Mức ưu tiên
+      NULL,        // Handle
+      1            // Chạy trên core 1 (ESP32 có 2 core)
+>>>>>>> 3f0e2b6a4e1d6a8205a4efc439f4d246b4adae96
     );
 
 }
 void captureAndUploadTask(void *parameter) {
+<<<<<<< HEAD
   if (WiFi.status() == WL_CONNECTED) {
         Firebase.begin(FIREBASE_HOST, FIREBASE_AUTH);
         Firebase.reconnectWiFi(true);
@@ -218,6 +268,8 @@ void captureAndUploadTask(void *parameter) {
         Serial.println("WiFi not connected, Firebase not initialized.");
         return;
     }
+=======
+>>>>>>> 3f0e2b6a4e1d6a8205a4efc439f4d246b4adae96
     while (true) {
         Serial.println("Chụp ảnh và gửi lên Firebase...");
         String base64Photo = Photo2Base64();
@@ -391,12 +443,15 @@ void close_door() {
 }
 
 void loop() {
+<<<<<<< HEAD
   if (WiFi.status() != WL_CONNECTED) {
   Serial.println("WiFi mất kết nối. Đang thử lại...");
   WiFi.disconnect();
   WiFi.begin(ssid, password);
   delay(1000);
 }
+=======
+>>>>>>> 3f0e2b6a4e1d6a8205a4efc439f4d246b4adae96
   auto client = socket_server.accept();
   client.onMessage(handle_message);
   dl_matrix3du_t *image_matrix = dl_matrix3du_alloc(1, 320, 240, 3);
