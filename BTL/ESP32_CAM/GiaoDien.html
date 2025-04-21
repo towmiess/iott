@@ -280,21 +280,14 @@
 
     .image-container {
       position: relative;
-      width: 636px;
+      width: 320px;
+      height: 240px;
+      margin-left: 150px;
+      margin-top: 30px;
     }
 
     .stream {
-      max-width: 636px;
-    }
-
-    ul {
-      list-style: none;
-      padding: 5px;
-      margin: 0;
-    }
-
-    li {
-      padding: 5px 0;
+      max-width: 320px;
     }
 
     .delete {
@@ -347,8 +340,6 @@
           </div>
         </div>
         <div class="people">
-          <h3>MY OWNER</h3>
-          <ul></ul>
         </div>
         <div class="buttons-delete">
           <button id="delete_all">DELETE ALL</button>
@@ -370,7 +361,7 @@
   <script>
     document.addEventListener("DOMContentLoaded", function (event) {
       var baseHost = document.location.origin;
-      var streamUrl = baseHost + ":81";
+      var streamUrl = baseHost + ":82";
       const WS_URL = "ws://" + window.location.host + ":82";
       const ws = new WebSocket(WS_URL);
 

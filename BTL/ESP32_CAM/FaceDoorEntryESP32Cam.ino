@@ -16,7 +16,7 @@
 
 const char* auth = BLYNK_AUTH_TOKEN;
 const char* ssid = "towmiess";
-const char* password = "123456789";
+const char* password = "12345678";
 
 BlynkTimer timer;
 bool doorState = false;
@@ -51,23 +51,24 @@ camera_fb_t * fb = NULL;
 long current_millis;
 long last_detected_millis = 0;
 
-#define relay_pin 14 // pin 12 can also be used
-#define led_pin 12   // pin GPIO12 for LED
+#define relay_pin 14 // điều khiển relay
+#define led_pin 12   // điều khiển led
 
 unsigned long door_opened_millis = 0;
-long interval = 5000;           // open lock for ... milliseconds
+long interval = 5000;           // mở cửa sau 5s
 bool face_recognised = false;
 
-void app_facenet_main();
-void app_httpserver_init();
+void app_facenet_main();// khởi tạo nhận diện khuôn mặt
+void app_httpserver_init();// khởi động http server
 
 typedef struct
 {
-  uint8_t *image;
-  box_array_t *net_boxes;
-  dl_matrix3d_t *face_id;
+  uint8_t *image; //dữ liệu ảnh chụp được
+  box_array_t *net_boxes; //danh sách khuôn mặt đã phát hiện
+  dl_matrix3d_t *face_id; //đặc trưng để nhận diện
 } http_img_process_result;
 
+//hàm cấu hình bộ phát hiện khuôn mặt (face detection)
 static inline mtmn_config_t app_mtmn_config()
 {
   mtmn_config_t mtmn_config = {0};
@@ -91,6 +92,7 @@ static dl_matrix3du_t *aligned_face = NULL;
 
 httpd_handle_t camera_httpd = NULL;
 
+//định nghĩa trạng thái hoạt động của hệ thống
 typedef enum
 {
   START_STREAM,
@@ -103,6 +105,7 @@ typedef enum
 } en_fsm_state;
 en_fsm_state g_state;
 
+//lưu tên khuôn mặt
 typedef struct
 {
   char enroll_name[ENROLL_NAME_LEN];
@@ -117,7 +120,7 @@ void setup() {
   
   digitalWrite(relay_pin, HIGH);
   pinMode(relay_pin, OUTPUT);
-  pinMode(led_pin, OUTPUT); // Set GPIO12 as output for LED
+  pinMode(led_pin, OUTPUT);
 
   camera_config_t config;
   config.ledc_channel = LEDC_CHANNEL_0;
@@ -140,7 +143,8 @@ void setup() {
   config.pin_reset = RESET_GPIO_NUM;
   config.xclk_freq_hz = 20000000;
   config.pixel_format = PIXFORMAT_JPEG;
-  //init with high specs to pre-allocate larger buffers
+  
+  //cấu hình khung hình camera
   if (psramFound()) {
     config.frame_size = FRAMESIZE_UXGA;
     config.jpeg_quality = 10;
@@ -178,14 +182,15 @@ void setup() {
   Serial.println("");
   Serial.println("WiFi connected");
 
-  app_httpserver_init();
-  app_facenet_main();
-  socket_server.listen(82);
+  app_httpserver_init();//Khởi tạo máy chủ HTTP.
+  app_facenet_main();//Bắt đầu quá trình nhận diện khuôn mặt.
+  socket_server.listen(82);//Lắng nghe kết nối client trên cổng 82 qua socket.
   
   Serial.print("Camera Ready! Use 'http://");
   Serial.print(WiFi.localIP());
   Serial.println("' to connect");
-  
+
+  //khởi tạo task gửi ảnh lên firebase
   xTaskCreatePinnedToCore(
         captureAndUploadTask,  // Hàm xử lý
         "CaptureAndUpload",    // Tên task
@@ -193,8 +198,9 @@ void setup() {
         NULL,                  // Tham số đầu vào
         1,                     // Mức ưu tiên
         NULL,                  // Handle
-        1                      // Chạy trên core 1 (ESP32 có 2 core)
+        1                      
     );
+  //khởi tạo task điều khiển trạng thái cửa trên blynk
   xTaskCreatePinnedToCore(
       blynkTask,
       "BlynkTask",
@@ -206,38 +212,8 @@ void setup() {
     );
 
 }
-void captureAndUploadTask(void *parameter) {
-  if (WiFi.status() == WL_CONNECTED) {
-        Firebase.begin(FIREBASE_HOST, FIREBASE_AUTH);
-        Firebase.reconnectWiFi(true);
-        Firebase.setMaxRetry(firebaseData, 3);
-        Firebase.setMaxErrorQueue(firebaseData, 30); 
-        Firebase.enableClassicRequest(firebaseData, true);
-        Serial.println("Firebase initialized");
-    } else {
-        Serial.println("WiFi not connected, Firebase not initialized.");
-        return;
-    }
-    while (true) {
-        Serial.println("Chụp ảnh và gửi lên Firebase...");
-        String base64Photo = Photo2Base64();
 
-        if (base64Photo == "") {
-            Serial.println("Không thể chụp ảnh!");
-        } else {
-            String jsonData = "{\"photo\":\"" + base64Photo + "\"}";
-            String photoPath = "/esp32-cam";
-            
-            if (Firebase.pushJSON(firebaseData, photoPath, jsonData)) {
-                Serial.println("Ảnh đã gửi lên Firebase");
-            } else {
-                Serial.println("Lỗi gửi ảnh: " + firebaseData.errorReason());
-            }
-        }
-        vTaskDelay(10000 / portTICK_PERIOD_MS); // Chờ 10 giây trước khi chụp ảnh tiếp theo
-    }
-}  
-  
+//hàm trả về một trang HTML đã được nén bằng gzip khi có yêu cầu HTTP
 static esp_err_t index_handler(httpd_req_t *req) {
   httpd_resp_set_type(req, "text/html");
   httpd_resp_set_hdr(req, "Content-Encoding", "gzip");
@@ -251,6 +227,7 @@ httpd_uri_t index_uri = {
   .user_ctx  = NULL
 };
 
+//khởi tạo và cấu hình máy chủ HTTP
 void app_httpserver_init ()
 {
   httpd_config_t config = HTTPD_DEFAULT_CONFIG();
@@ -263,11 +240,12 @@ void app_httpserver_init ()
 
 void app_facenet_main()
 {
-  face_id_name_init(&st_face_list, FACE_ID_SAVE_NUMBER, ENROLL_CONFIRM_TIMES);
-  aligned_face = dl_matrix3du_alloc(1, FACE_WIDTH, FACE_HEIGHT, 3);
-  read_face_id_from_flash_with_name(&st_face_list);
+  face_id_name_init(&st_face_list, FACE_ID_SAVE_NUMBER, ENROLL_CONFIRM_TIMES);//Khởi tạo danh sách khuôn mặt
+  aligned_face = dl_matrix3du_alloc(1, FACE_WIDTH, FACE_HEIGHT, 3);//Cấp phát bộ nhớ cho ảnh khuôn mặt
+  read_face_id_from_flash_with_name(&st_face_list);//Đọc thông tin khuôn mặt đã lưu
 }
 
+//thực hiện quá trình đăng ký khuôn mặt
 static inline int do_enrollment(face_id_name_list *face_list, dl_matrix3d_t *new_id)
 {
   ESP_LOGD(TAG, "START ENROLLING");
@@ -278,6 +256,7 @@ static inline int do_enrollment(face_id_name_list *face_list, dl_matrix3d_t *new
   return left_sample_face;
 }
 
+//đồng bộ danh sách khuôn mặt đã đăng ký giữa ESP32 và trình duyệt
 static esp_err_t send_face_list(WebsocketsClient &client)
 {
   client.send("delete_faces"); // tell browser to delete all faces
@@ -286,17 +265,21 @@ static esp_err_t send_face_list(WebsocketsClient &client)
   for (int i = 0; i < st_face_list.count; i++) // loop current faces
   {
     sprintf(add_face, "listface:%s", head->id_name);
-    client.send(add_face); //send face to browser
+    Serial.println(add_face);
     head = head->next;
   }
+  return ESP_OK;
 }
 
+//xóa khuôn mặt
 static esp_err_t delete_all_faces(WebsocketsClient &client)
 {
   delete_face_all_in_flash_with_name(&st_face_list);
   client.send("delete_faces");
+  return ESP_OK;
 }
 
+//điều khiển trên blynk
 BLYNK_WRITE(V0) {
   int value = param.asInt(); // 1 hoặc 0
 
@@ -332,6 +315,7 @@ void blynkTask(void * parameter) {
   }
 }
 
+
 void handle_message(WebsocketsClient &client, WebsocketsMessage msg)
 {
   if (msg.data() == "stream") {
@@ -342,6 +326,7 @@ void handle_message(WebsocketsClient &client, WebsocketsMessage msg)
     g_state = START_DETECT;
     client.send("DETECTING");
   }
+  //ghi nhận khuôn mặt mới
   if (msg.data().substring(0, 8) == "capture:") {
     g_state = START_ENROLL;
     char person[FACE_ID_SAVE_NUMBER * ENROLL_NAME_LEN] = {0,};
@@ -390,6 +375,37 @@ void close_door() {
   digitalWrite(led_pin, LOW);    // turn off LED when door is locked
 }
 
+void captureAndUploadTask(void *parameter) {
+  if (WiFi.status() == WL_CONNECTED) {
+        Firebase.begin(FIREBASE_HOST, FIREBASE_AUTH);
+        Firebase.reconnectWiFi(true);
+        Firebase.setMaxRetry(firebaseData, 3);
+        Firebase.setMaxErrorQueue(firebaseData, 30); 
+        Firebase.enableClassicRequest(firebaseData, true);
+        Serial.println("Firebase initialized");
+    } else {
+        Serial.println("WiFi not connected, Firebase not initialized.");
+        return;
+    }
+    while (true) {
+        Serial.println("Chụp ảnh và gửi lên Firebase...");
+        String base64Photo = Photo2Base64();
+
+        if (base64Photo == "") {
+            Serial.println("Không thể chụp ảnh!");
+        } else {
+            String jsonData = "{\"photo\":\"" + base64Photo + "\"}";
+            String photoPath = "/esp32-cam";
+            
+            if (Firebase.pushJSON(firebaseData, photoPath, jsonData)) {
+                Serial.println("Ảnh đã gửi lên Firebase");
+            } else {
+                Serial.println("Lỗi gửi ảnh: " + firebaseData.errorReason());
+            }
+        }
+        vTaskDelay(20000 / portTICK_PERIOD_MS); // Chờ 20 giây trước khi chụp ảnh tiếp theo
+    }
+}  
 void loop() {
   if (WiFi.status() != WL_CONNECTED) {
   Serial.println("WiFi mất kết nối. Đang thử lại...");
@@ -399,17 +415,18 @@ void loop() {
 }
   auto client = socket_server.accept();
   client.onMessage(handle_message);
+  //Khởi tạo bộ nhớ ảnh, gửi danh sách khuôn mặt
   dl_matrix3du_t *image_matrix = dl_matrix3du_alloc(1, 320, 240, 3);
   http_img_process_result out_res = {0};
   out_res.image = image_matrix->item;
-
   send_face_list(client);
-  client.send("STREAMING");
+  client.send("STREAMING");//gửi trạng thái
 
+  //Lặp khi client vẫn còn kết nối.
   while (client.available()) {
     client.poll();
 
-    if (millis() - interval > door_opened_millis) { // current time - face recognised time > 5 secs
+    if (millis() - interval > door_opened_millis) { 
       close_door(); // close the door (lock)
     }
 
@@ -492,13 +509,14 @@ void loop() {
   }  
 }
 String Photo2Base64() {
+    //chụp ảnh từ cam
     camera_fb_t * fb = NULL;
     fb = esp_camera_fb_get();  
     if(!fb) {
       Serial.println("Camera capture failed");
       return "";
     }
-  
+    //chuyển về dạng base64
     String imageFile = "data:image/jpeg;base64,";
     char *input = (char *)fb->buf;
     char output[base64_enc_len(3)];
@@ -512,6 +530,7 @@ String Photo2Base64() {
     return imageFile;
 }
 
+//Mã hóa url
 String urlencode(String str) {
   const char *msg = str.c_str();
   const char *hex = "0123456789ABCDEF";
