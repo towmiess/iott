@@ -43,12 +43,16 @@ bool autoPumpControl = false;
 #define GAS_SENSOR_PIN 34
 #define BUZZER_PIN 26
 int gasThreshold = 400; // Giá trị mặc định, có thể thay đổi từ Blynk
+// Biến lưu giá trị cảm biến khí gas
+int lastGasValue = 0;
 
 // 🔹 Cảm biến siêu âm
 #define TRIG_PIN 12
 #define ECHO_PIN 13
 #define LED_PIN 25
 int distanceThreshold = 20; // Ngưỡng khoảng cách bật đèn (cm)
+// Biến lưu khoảng cách đo được từ cảm biến siêu âm
+long lastDistance = 0;
 
 // 🔹 Cấu hình MQTT (HiveMQ)
 #define MQTT_SERVER "e4d6461e44b845fdbc9a32917b240fa3.s1.eu.hivemq.cloud"
@@ -66,6 +70,9 @@ SemaphoreHandle_t tempMutex;
 float lastTemperature = 0.0;
 int lastSoilMoisture = 0; // Giá trị độ ẩm đất
 SemaphoreHandle_t soilMutex; 
+SemaphoreHandle_t xGasMutex;
+SemaphoreHandle_t xUltrasonicMutex;
+
 
 // 📡 Kết nối WiFi
 void WiFiTask(void *pvParameters) {
@@ -258,20 +265,27 @@ void PumpControlTask(void *pvParameters) {
 // 📡 Đọc cảm biến khí gas
 void GasSensorTask(void *pvParameters) {
     while (true) {
-        int gasValue = analogRead(GAS_SENSOR_PIN);
-        Serial.printf("🚨 Giá trị khí gas: %d\n", gasValue);
+        // Đảm bảo chỉ một task có thể đọc cảm biến khí gas tại một thời điểm
+        if (xSemaphoreTake(xGasMutex, portMAX_DELAY) == pdTRUE) {
+            int gasValue = analogRead(GAS_SENSOR_PIN);
+            Serial.printf("🚨 Giá trị khí gas: %d\n", gasValue);
 
-        if (gasValue >= gasThreshold) {
-            digitalWrite(BUZZER_PIN, LOW); // Bật còi (logic ngược)
-            Serial.println("🔊 Báo động khí gas!");
-        } else {
-            digitalWrite(BUZZER_PIN, HIGH); // Tắt còi
+            if (gasValue >= gasThreshold) {
+                digitalWrite(BUZZER_PIN, LOW); // Bật còi (logic ngược)
+                Serial.println("🔊 Báo động khí gas!");
+            } else {
+                digitalWrite(BUZZER_PIN, HIGH); // Tắt còi
+            }
+
+            Blynk.virtualWrite(V8, gasValue); // Gửi giá trị gas về Blynk
+
+            xSemaphoreGive(xGasMutex); // Giải phóng mutex sau khi hoàn thành
         }
 
-        Blynk.virtualWrite(V8, gasValue); // Gửi giá trị gas về Blynk
-        vTaskDelay(3000 / portTICK_PERIOD_MS);
+        vTaskDelay(5000 / portTICK_PERIOD_MS); // Đọc lại mỗi 5 giây
     }
 }
+
 
 long readDistanceCM() {
     digitalWrite(TRIG_PIN, LOW);
@@ -288,20 +302,27 @@ long readDistanceCM() {
 // 📡 Cảm biến siêu âm
 void UltrasonicTask(void *pvParameters) {
     while (true) {
-        long distance = readDistanceCM();
-        Serial.printf("📏 Khoảng cách đo được: %ld cm\n", distance);
+        // Đảm bảo chỉ một task có thể đọc cảm biến siêu âm tại một thời điểm
+        if (xSemaphoreTake(xUltrasonicMutex, portMAX_DELAY) == pdTRUE) {
+            long distance = readDistanceCM();
+            Serial.printf("📏 Khoảng cách đo được: %ld cm\n", distance);
 
-        if (distance > 0 && distance <= distanceThreshold) {
-            digitalWrite(LED_PIN, LOW); // Bật đèn
-            Serial.println("💡 Vật thể gần - Bật đèn");
-        } else {
-            digitalWrite(LED_PIN, HIGH); // Tắt đèn
+            if (distance > 0 && distance <= distanceThreshold) {
+                digitalWrite(LED_PIN, LOW); // Bật đèn
+                Serial.println("💡 Vật thể gần - Bật đèn");
+            } else {
+                digitalWrite(LED_PIN, HIGH); // Tắt đèn
+            }
+
+            Blynk.virtualWrite(V9, distance); // Gửi dữ liệu về Blynk
+
+            xSemaphoreGive(xUltrasonicMutex); // Giải phóng mutex sau khi hoàn thành
         }
 
-        Blynk.virtualWrite(V9, distance); // Gửi dữ liệu về Blynk
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        vTaskDelay(5000 / portTICK_PERIOD_MS); // Đọc lại mỗi 5 giây
     }
 }
+
 
 // 📡 Gửi dữ liệu lên Firebase
 void FirebaseTask(void *pvParameters) {
@@ -333,6 +354,26 @@ void FirebaseTask(void *pvParameters) {
             // Gửi dữ liệu Soil Moisture
              String soilPath = "/sensor_data";
              Firebase.setInt(firebaseData, soilPath + "/soil_moisture", soil);
+
+            // 🔐 Đọc giá trị khí gas từ biến dùng mutex
+            xSemaphoreTake(xGasMutex, portMAX_DELAY);
+            int gasValue = lastGasValue; // Sử dụng biến gasValue được cập nhật trong GasSensorTask
+            xSemaphoreGive(xGasMutex);
+
+            // Gửi dữ liệu khí gas lên Firebase
+            String gasPath = "/sensor_data";
+            Firebase.setInt(firebaseData, gasPath + "/gas", gasValue);
+
+            // 🔐 Đọc khoảng cách siêu âm từ biến dùng mutex
+            xSemaphoreTake(xUltrasonicMutex, portMAX_DELAY);
+            long distance = lastDistance; // Sử dụng biến distance được cập nhật trong UltrasonicTask
+            xSemaphoreGive(xUltrasonicMutex);
+
+            // Gửi dữ liệu khoảng cách siêu âm lên Firebase
+            String ultrasonicPath = "/sensor_data";
+            Firebase.setFloat(firebaseData, ultrasonicPath + "/distance", distance);
+
+             yield();
         } else {
             Serial.println("⚠️ Firebase chưa sẵn sàng hoặc WiFi mất kết nối!");
         }
@@ -418,6 +459,9 @@ void setup() {
     wifiMutex = xSemaphoreCreateMutex();
     tempMutex = xSemaphoreCreateMutex();
     soilMutex = xSemaphoreCreateMutex();
+    xGasMutex = xSemaphoreCreateMutex();
+    xUltrasonicMutex = xSemaphoreCreateMutex();
+
 
     // Khởi tạo các task FreeRTOS để chạy song song
     xTaskCreatePinnedToCore(WiFiTask, "WiFiTask", 4096, NULL, 1, NULL, 0);
@@ -428,7 +472,7 @@ void setup() {
     xTaskCreatePinnedToCore(PumpControlTask, "PumpControlTask",4096,NULL,1,NULL,0);
     xTaskCreatePinnedToCore(GasSensorTask, "GasSensorTask", 4096, NULL, 1, NULL, 0);
     xTaskCreatePinnedToCore(UltrasonicTask, "UltrasonicTask", 4096, NULL, 1, NULL, 0);
-    xTaskCreatePinnedToCore(FirebaseTask, "FirebaseTask", 10240, NULL, 1, NULL, 0);
+    xTaskCreatePinnedToCore(FirebaseTask, "FirebaseTask", 10240, NULL, 1, NULL, 1);
 
 }
 
