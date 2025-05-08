@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "author": "Uri Shaked",
+  "editor": "wokwi",
+  "parts": [
+    { "type": "wokwi-esp32-devkit-v1", "id": "esp", "top": 14.3, "left": -24.2, "attrs": {} },
+    { "type": "wokwi-dht22", "id": "dht1", "top": -28.5, "left": 138.6, "attrs": {} },
+    { "type": "wokwi-hc-sr04", "id": "ultrasonic1", "top": -27.3, "left": 264.7, "attrs": {} },
+    {
+      "type": "wokwi-photoresistor-sensor",
+      "id": "ldr1",
+      "top": 22.4,
+      "left": -344.8,
+      "attrs": {}
+    }
+  ],
+  "connections": [
+    [ "esp:TX0", "$serialMonitor:RX", "", [] ],
+    [ "esp:RX0", "$serialMonitor:TX", "", [] ],
+    [ "dht1:VCC", "esp:3V3", "red", [ "v0" ] ],
+    [ "dht1:GND", "esp:GND.1", "black", [ "v0" ] ],
+    [ "dht1:SDA", "esp:D14", "green", [ "v9.6", "h-38.3", "v-115.2", "h-201.6", "v153.5" ] ],
+    [ "ldr1:VCC", "esp:3V3", "red", [ "h105.6", "v192", "h163.2", "v-57.6" ] ],
+    [ "ldr1:GND", "esp:GND.2", "black", [ "h115.2", "v114.9" ] ],
+    [ "esp:D34", "ldr1:AO", "green", [ "h0" ] ],
+    [ "ultrasonic1:VCC", "esp:3V3", "red", [ "v0" ] ],
+    [ "ultrasonic1:GND", "esp:GND.1", "black", [ "v0" ] ],
+    [ "ultrasonic1:TRIG", "esp:D12", "green", [ "v153.6", "h-394", "v-76.1" ] ],
+    [ "ultrasonic1:ECHO", "esp:D13", "green", [ "v172.8", "h-394.4", "v-86.2" ] ]
+  ],
+  "dependencies": {}
+}
