@@ -39,6 +39,17 @@ bool autoFanControl = false;
 bool PumpState = false;
 bool autoPumpControl = false;
 
+// 🔹 Cảm biến khí gas (ví dụ MQ2)
+#define GAS_SENSOR_PIN 34
+#define BUZZER_PIN 26
+int gasThreshold = 400; // Giá trị mặc định, có thể thay đổi từ Blynk
+
+// 🔹 Cảm biến siêu âm
+#define TRIG_PIN 12
+#define ECHO_PIN 13
+#define LED_PIN 25
+int distanceThreshold = 20; // Ngưỡng khoảng cách bật đèn (cm)
+
 // 🔹 Cấu hình MQTT (HiveMQ)
 #define MQTT_SERVER "e4d6461e44b845fdbc9a32917b240fa3.s1.eu.hivemq.cloud"
 #define MQTT_PORT 8883
@@ -244,6 +255,54 @@ void PumpControlTask(void *pvParameters) {
     }
 }
 
+// 📡 Đọc cảm biến khí gas
+void GasSensorTask(void *pvParameters) {
+    while (true) {
+        int gasValue = analogRead(GAS_SENSOR_PIN);
+        Serial.printf("🚨 Giá trị khí gas: %d\n", gasValue);
+
+        if (gasValue >= gasThreshold) {
+            digitalWrite(BUZZER_PIN, LOW); // Bật còi (logic ngược)
+            Serial.println("🔊 Báo động khí gas!");
+        } else {
+            digitalWrite(BUZZER_PIN, HIGH); // Tắt còi
+        }
+
+        Blynk.virtualWrite(V8, gasValue); // Gửi giá trị gas về Blynk
+        vTaskDelay(3000 / portTICK_PERIOD_MS);
+    }
+}
+
+long readDistanceCM() {
+    digitalWrite(TRIG_PIN, LOW);
+    delayMicroseconds(2);
+    digitalWrite(TRIG_PIN, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(TRIG_PIN, LOW);
+
+    long duration = pulseIn(ECHO_PIN, HIGH, 30000); // Timeout 30ms
+    long distance = duration * 0.034 / 2;
+    return distance;
+}
+
+// 📡 Cảm biến siêu âm
+void UltrasonicTask(void *pvParameters) {
+    while (true) {
+        long distance = readDistanceCM();
+        Serial.printf("📏 Khoảng cách đo được: %ld cm\n", distance);
+
+        if (distance > 0 && distance <= distanceThreshold) {
+            digitalWrite(LED_PIN, LOW); // Bật đèn
+            Serial.println("💡 Vật thể gần - Bật đèn");
+        } else {
+            digitalWrite(LED_PIN, HIGH); // Tắt đèn
+        }
+
+        Blynk.virtualWrite(V9, distance); // Gửi dữ liệu về Blynk
+        vTaskDelay(1000 / portTICK_PERIOD_MS);
+    }
+}
+
 // 📡 Gửi dữ liệu lên Firebase
 void FirebaseTask(void *pvParameters) {
     // Cấu hình Firebase
@@ -319,6 +378,18 @@ BLYNK_WRITE(V7) {
     }
 }
 
+// Ngưỡng khí gas (V10)
+BLYNK_WRITE(V10) {
+    gasThreshold = param.asInt();
+    Serial.printf("⚙️ Ngưỡng khí gas mới: %d\n", gasThreshold);
+}
+
+// Ngưỡng khoảng cách siêu âm (V11)
+BLYNK_WRITE(V11) {
+    distanceThreshold = param.asInt();
+    Serial.printf("⚙️ Ngưỡng khoảng cách mới: %d cm\n", distanceThreshold);
+}
+
 // 🔹 Cấu hình ESP32
 void setup() {
     Serial.begin(115200); // Khởi động Serial Monitor với baud rate 115200
@@ -332,19 +403,32 @@ void setup() {
     digitalWrite(RELAY_PUMP_PIN, HIGH);  // Tắt bơm ban đầu
     Blynk.begin(BLYNK_AUTH_TOKEN, WIFI_SSID, WIFI_PASSWORD); // Kết nối Blynk
 
+    // Gas sensor & buzzer
+    pinMode(GAS_SENSOR_PIN, INPUT);
+    pinMode(BUZZER_PIN, OUTPUT);
+    digitalWrite(BUZZER_PIN, HIGH); // Logic ngược: tắt còi ban đầu
+
+    // Ultrasonic sensor
+    pinMode(TRIG_PIN, OUTPUT);
+    pinMode(ECHO_PIN, INPUT);
+    pinMode(LED_PIN, OUTPUT);
+    digitalWrite(LED_PIN, HIGH); // Logic ngược: tắt đèn ban đầu
+
     // Tạo mutex để quản lý truy cập WiFi và biến nhiệt độ
     wifiMutex = xSemaphoreCreateMutex();
     tempMutex = xSemaphoreCreateMutex();
     soilMutex = xSemaphoreCreateMutex();
 
     // Khởi tạo các task FreeRTOS để chạy song song
-    xTaskCreatePinnedToCore(WiFiTask, "WiFiTask", 4096, NULL, 1, NULL, 1);
-    xTaskCreatePinnedToCore(MQTTTask, "MQTTTask", 4096, NULL, 1, NULL, 1);
-    xTaskCreatePinnedToCore(DHTTask, "DHTTask", 4096, NULL, 1, NULL, 1);
-    xTaskCreatePinnedToCore(SoilTask, "Soil Task", 4096, NULL, 1, NULL, 1);
-    xTaskCreatePinnedToCore(FanControlTask, "FanControlTask", 4096, NULL, 1, NULL, 1);
-    xTaskCreatePinnedToCore(PumpControlTask, "PumpControlTask",4096,NULL,1,NULL,1);
-    xTaskCreatePinnedToCore(FirebaseTask, "FirebaseTask", 10240, NULL, 1, NULL, 1);
+    xTaskCreatePinnedToCore(WiFiTask, "WiFiTask", 4096, NULL, 1, NULL, 0);
+    xTaskCreatePinnedToCore(MQTTTask, "MQTTTask", 4096, NULL, 1, NULL, 0);
+    xTaskCreatePinnedToCore(DHTTask, "DHTTask", 4096, NULL, 1, NULL, 0);
+    xTaskCreatePinnedToCore(SoilTask, "Soil Task", 4096, NULL, 1, NULL, 0);
+    xTaskCreatePinnedToCore(FanControlTask, "FanControlTask", 4096, NULL, 1, NULL, 0);
+    xTaskCreatePinnedToCore(PumpControlTask, "PumpControlTask",4096,NULL,1,NULL,0);
+    xTaskCreatePinnedToCore(GasSensorTask, "GasSensorTask", 4096, NULL, 1, NULL, 0);
+    xTaskCreatePinnedToCore(UltrasonicTask, "UltrasonicTask", 4096, NULL, 1, NULL, 0);
+    xTaskCreatePinnedToCore(FirebaseTask, "FirebaseTask", 10240, NULL, 1, NULL, 0);
 
 }
 
