@@ -42,9 +42,14 @@ bool autoPumpControl = false;
 // 🔹 Cảm biến khí gas (ví dụ MQ2)
 #define GAS_SENSOR_PIN 34
 #define BUZZER_PIN 26
+#define RELAY_LED_PIN     21  // Chân điều khiển relay của đèn siêu âm (IN1)
+#define RELAY_BUZZER_PIN  22  // Chân điều khiển relay của còi khí gas (IN2)
 int gasThreshold = 400; // Giá trị mặc định, có thể thay đổi từ Blynk
 // Biến lưu giá trị cảm biến khí gas
 int lastGasValue = 0;
+bool gasAlertActive = false;
+unsigned long gasAlertStartTime = 0;
+
 
 // 🔹 Cảm biến siêu âm
 #define TRIG_PIN 12
@@ -270,11 +275,15 @@ void GasSensorTask(void *pvParameters) {
             int gasValue = analogRead(GAS_SENSOR_PIN);
             Serial.printf("🚨 Giá trị khí gas: %d\n", gasValue);
 
-            if (gasValue >= gasThreshold) {
-                digitalWrite(BUZZER_PIN, LOW); // Bật còi (logic ngược)
+            if (gasValue >= gasThreshold && !gasAlertActive) {
+                digitalWrite(RELAY_BUZZER_PIN, LOW);  // Bật còi
+                gasAlertActive = true;
+                gasAlertStartTime = millis();
                 Serial.println("🔊 Báo động khí gas!");
-            } else {
-                digitalWrite(BUZZER_PIN, HIGH); // Tắt còi
+            } 
+            if (gasAlertActive && millis() - gasAlertStartTime >= 3000) {
+                digitalWrite(RELAY_BUZZER_PIN, HIGH); // Tắt còi
+                gasAlertActive = false;
             }
 
             Blynk.virtualWrite(V8, gasValue); // Gửi giá trị gas về Blynk
@@ -308,10 +317,10 @@ void UltrasonicTask(void *pvParameters) {
             Serial.printf("📏 Khoảng cách đo được: %ld cm\n", distance);
 
             if (distance > 0 && distance <= distanceThreshold) {
-                digitalWrite(LED_PIN, LOW); // Bật đèn
+                digitalWrite(RELAY_LED_PIN, LOW);   // Bật đèn
                 Serial.println("💡 Vật thể gần - Bật đèn");
             } else {
-                digitalWrite(LED_PIN, HIGH); // Tắt đèn
+                digitalWrite(RELAY_LED_PIN, HIGH); // Tắt đèn
             }
 
             Blynk.virtualWrite(V9, distance); // Gửi dữ liệu về Blynk
@@ -446,14 +455,14 @@ void setup() {
 
     // Gas sensor & buzzer
     pinMode(GAS_SENSOR_PIN, INPUT);
-    pinMode(BUZZER_PIN, OUTPUT);
-    digitalWrite(BUZZER_PIN, HIGH); // Logic ngược: tắt còi ban đầu
+    pinMode(RELAY_BUZZER_PIN, OUTPUT);
+    digitalWrite(RELAY_BUZZER_PIN, HIGH);  // Tắt còi ban đầu (relay không cấp điện)
 
     // Ultrasonic sensor
     pinMode(TRIG_PIN, OUTPUT);
     pinMode(ECHO_PIN, INPUT);
-    pinMode(LED_PIN, OUTPUT);
-    digitalWrite(LED_PIN, HIGH); // Logic ngược: tắt đèn ban đầu
+    pinMode(RELAY_LED_PIN, OUTPUT);
+    digitalWrite(RELAY_LED_PIN, HIGH);    // Tắt đèn ban đầu
 
     // Tạo mutex để quản lý truy cập WiFi và biến nhiệt độ
     wifiMutex = xSemaphoreCreateMutex();
