@@ -275,7 +275,6 @@ void GasSensorTask(void *pvParameters) {
             int currentvalue = analogRead(GAS_SENSOR_PIN);\
             lastGasValue = currentvalue;
             Serial.printf("🚨 Giá trị khí gas: %d\n", lastGasValue);
-
             if (lastGasValue >= gasThreshold && !gasAlertActive) {
                 digitalWrite(RELAY_BUZZER_PIN, LOW);  // Bật còi
                 gasAlertActive = true;
@@ -315,7 +314,6 @@ void UltrasonicTask(void *pvParameters) {
         if (xSemaphoreTake(xUltrasonicMutex, portMAX_DELAY) == pdTRUE) {
             long lastDistance = readDistanceCM();
             Serial.printf("📏 Khoảng cách đo được: %ld cm\n", lastDistance);
-
             if (lastDistance> 0 && lastDistance <= distanceThreshold) {
                 digitalWrite(RELAY_LED_PIN, LOW);   // Bật đèn
                 Serial.println("💡 Vật thể gần - Bật đèn");
