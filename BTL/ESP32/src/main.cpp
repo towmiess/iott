@@ -42,9 +42,14 @@ bool autoPumpControl = false;
 // 🔹 Cảm biến khí gas (ví dụ MQ2)
 #define GAS_SENSOR_PIN 34
 #define BUZZER_PIN 26
+#define RELAY_LED_PIN     21  // Chân điều khiển relay của đèn siêu âm (IN1)
+#define RELAY_BUZZER_PIN  22  // Chân điều khiển relay của còi khí gas (IN2)
 int gasThreshold = 400; // Giá trị mặc định, có thể thay đổi từ Blynk
 // Biến lưu giá trị cảm biến khí gas
 int lastGasValue = 0;
+bool gasAlertActive = false;
+unsigned long gasAlertStartTime = 0;
+
 
 // 🔹 Cảm biến siêu âm
 #define TRIG_PIN 12
@@ -146,7 +151,7 @@ void MQTTTask(void *pvParameters) {
             connectMQTT(); // Nếu mất kết nối, thử kết nối lại
         }
         mqttClient.loop(); // Lắng nghe và xử lý dữ liệu MQTT
-        vTaskDelay(100 / portTICK_PERIOD_MS); // Chờ 100ms trước khi kiểm tra lại
+        vTaskDelay(10 / portTICK_PERIOD_MS); // Chờ 100ms trước khi kiểm tra lại
     }
 }
 
@@ -202,7 +207,7 @@ void SoilTask(void *pvParameters) {
       String mqttMessage = "{\"soil\": " + String(soilPercent) + "}";
       mqttClient.publish(MQTT_PUBLISH_TOPIC, mqttMessage.c_str());
 
-      vTaskDelay(5000 / portTICK_PERIOD_MS); // Delay 5s
+      vTaskDelay(7000 / portTICK_PERIOD_MS); // Delay 7s
   }
 }
 
@@ -267,22 +272,27 @@ void GasSensorTask(void *pvParameters) {
     while (true) {
         // Đảm bảo chỉ một task có thể đọc cảm biến khí gas tại một thời điểm
         if (xSemaphoreTake(xGasMutex, portMAX_DELAY) == pdTRUE) {
-            int gasValue = analogRead(GAS_SENSOR_PIN);
-            Serial.printf("🚨 Giá trị khí gas: %d\n", gasValue);
+            int currentvalue = analogRead(GAS_SENSOR_PIN);\
+            lastGasValue = currentvalue;
+            Serial.printf("🚨 Giá trị khí gas: %d\n", lastGasValue);
 
-            if (gasValue >= gasThreshold) {
-                digitalWrite(BUZZER_PIN, LOW); // Bật còi (logic ngược)
+            if (lastGasValue >= gasThreshold && !gasAlertActive) {
+                digitalWrite(RELAY_BUZZER_PIN, LOW);  // Bật còi
+                gasAlertActive = true;
+                gasAlertStartTime = millis();
                 Serial.println("🔊 Báo động khí gas!");
-            } else {
-                digitalWrite(BUZZER_PIN, HIGH); // Tắt còi
+            } 
+            if (gasAlertActive && millis() - gasAlertStartTime >= 3000) {
+                digitalWrite(RELAY_BUZZER_PIN, HIGH); // Tắt còi
+                gasAlertActive = false;
             }
 
-            Blynk.virtualWrite(V8, gasValue); // Gửi giá trị gas về Blynk
+            Blynk.virtualWrite(V8, lastGasValue); // Gửi giá trị gas về Blynk
 
             xSemaphoreGive(xGasMutex); // Giải phóng mutex sau khi hoàn thành
         }
 
-        vTaskDelay(5000 / portTICK_PERIOD_MS); // Đọc lại mỗi 5 giây
+        vTaskDelay(9000 / portTICK_PERIOD_MS); // Đọc lại mỗi 5 giây
     }
 }
 
@@ -294,9 +304,8 @@ long readDistanceCM() {
     delayMicroseconds(10);
     digitalWrite(TRIG_PIN, LOW);
 
-    long duration = pulseIn(ECHO_PIN, HIGH, 30000); // Timeout 30ms
-    long distance = duration * 0.034 / 2;
-    return distance;
+    long duration = pulseIn(ECHO_PIN, HIGH, 30000); // Timeout 30ms 
+    return duration * 0.034 / 2;;
 }
 
 // 📡 Cảm biến siêu âm
@@ -304,22 +313,22 @@ void UltrasonicTask(void *pvParameters) {
     while (true) {
         // Đảm bảo chỉ một task có thể đọc cảm biến siêu âm tại một thời điểm
         if (xSemaphoreTake(xUltrasonicMutex, portMAX_DELAY) == pdTRUE) {
-            long distance = readDistanceCM();
-            Serial.printf("📏 Khoảng cách đo được: %ld cm\n", distance);
+            long lastDistance = readDistanceCM();
+            Serial.printf("📏 Khoảng cách đo được: %ld cm\n", lastDistance);
 
-            if (distance > 0 && distance <= distanceThreshold) {
-                digitalWrite(LED_PIN, LOW); // Bật đèn
+            if (lastDistance> 0 && lastDistance <= distanceThreshold) {
+                digitalWrite(RELAY_LED_PIN, LOW);   // Bật đèn
                 Serial.println("💡 Vật thể gần - Bật đèn");
             } else {
-                digitalWrite(LED_PIN, HIGH); // Tắt đèn
+                digitalWrite(RELAY_LED_PIN, HIGH); // Tắt đèn
             }
 
-            Blynk.virtualWrite(V9, distance); // Gửi dữ liệu về Blynk
+            Blynk.virtualWrite(V9, lastDistance); // Gửi dữ liệu về Blynk
 
             xSemaphoreGive(xUltrasonicMutex); // Giải phóng mutex sau khi hoàn thành
         }
 
-        vTaskDelay(5000 / portTICK_PERIOD_MS); // Đọc lại mỗi 5 giây
+        vTaskDelay(3000 / portTICK_PERIOD_MS); // Đọc lại mỗi 5 giây
     }
 }
 
@@ -378,7 +387,7 @@ void FirebaseTask(void *pvParameters) {
             Serial.println("⚠️ Firebase chưa sẵn sàng hoặc WiFi mất kết nối!");
         }
 
-        vTaskDelay(5000 / portTICK_PERIOD_MS); // Gửi mỗi 5 giây
+        vTaskDelay(15000 / portTICK_PERIOD_MS); // Gửi mỗi 5 giây
     }
 }
 
@@ -446,14 +455,14 @@ void setup() {
 
     // Gas sensor & buzzer
     pinMode(GAS_SENSOR_PIN, INPUT);
-    pinMode(BUZZER_PIN, OUTPUT);
-    digitalWrite(BUZZER_PIN, HIGH); // Logic ngược: tắt còi ban đầu
+    pinMode(RELAY_BUZZER_PIN, OUTPUT);
+    digitalWrite(RELAY_BUZZER_PIN, HIGH);  // Tắt còi ban đầu (relay không cấp điện)
 
     // Ultrasonic sensor
     pinMode(TRIG_PIN, OUTPUT);
     pinMode(ECHO_PIN, INPUT);
-    pinMode(LED_PIN, OUTPUT);
-    digitalWrite(LED_PIN, HIGH); // Logic ngược: tắt đèn ban đầu
+    pinMode(RELAY_LED_PIN, OUTPUT);
+    digitalWrite(RELAY_LED_PIN, HIGH);    // Tắt đèn ban đầu
 
     // Tạo mutex để quản lý truy cập WiFi và biến nhiệt độ
     wifiMutex = xSemaphoreCreateMutex();
@@ -464,15 +473,15 @@ void setup() {
 
 
     // Khởi tạo các task FreeRTOS để chạy song song
-    xTaskCreatePinnedToCore(WiFiTask, "WiFiTask", 4096, NULL, 1, NULL, 0);
-    xTaskCreatePinnedToCore(MQTTTask, "MQTTTask", 4096, NULL, 1, NULL, 0);
-    xTaskCreatePinnedToCore(DHTTask, "DHTTask", 4096, NULL, 1, NULL, 0);
-    xTaskCreatePinnedToCore(SoilTask, "Soil Task", 4096, NULL, 1, NULL, 0);
-    xTaskCreatePinnedToCore(FanControlTask, "FanControlTask", 4096, NULL, 1, NULL, 0);
-    xTaskCreatePinnedToCore(PumpControlTask, "PumpControlTask",4096,NULL,1,NULL,0);
-    xTaskCreatePinnedToCore(GasSensorTask, "GasSensorTask", 4096, NULL, 1, NULL, 0);
-    xTaskCreatePinnedToCore(UltrasonicTask, "UltrasonicTask", 4096, NULL, 1, NULL, 0);
-    xTaskCreatePinnedToCore(FirebaseTask, "FirebaseTask", 10240, NULL, 1, NULL, 1);
+    xTaskCreatePinnedToCore(WiFiTask, "WiFiTask", 4096, NULL, 1, NULL, 0);          // Core 0, priority 1
+    xTaskCreatePinnedToCore(MQTTTask, "MQTTTask", 4096, NULL, 2, NULL, 0);          // Core 0, priority 2
+    xTaskCreatePinnedToCore(DHTTask, "DHTTask", 4096, NULL, 1, NULL, 1);            // Core 1, priority 1
+    xTaskCreatePinnedToCore(SoilTask, "SoilTask", 4096, NULL, 1, NULL, 1);          // Core 1, priority 1
+    xTaskCreatePinnedToCore(FanControlTask, "FanControlTask", 4096, NULL, 2, NULL, 1); // Core 1, priority 2
+    xTaskCreatePinnedToCore(PumpControlTask, "PumpControlTask", 4096, NULL, 2, NULL, 1); // Core 1, priority 2
+    xTaskCreatePinnedToCore(GasSensorTask, "GasSensorTask", 4096, NULL, 3, NULL, 1); // Core 1, priority 3
+    xTaskCreatePinnedToCore(UltrasonicTask, "UltrasonicTask", 4096, NULL, 1, NULL, 1); // Core 1, priority 1
+    xTaskCreatePinnedToCore(FirebaseTask, "FirebaseTask", 10240, NULL, 1, NULL, 1); // Core 1, priority 0
 
 }
 
