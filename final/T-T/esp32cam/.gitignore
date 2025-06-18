@@ -1,0 +1,27 @@
+#dependencies
+/node_modules
+/.pnp
+.pnp.js
+
+#testing
+/coverage
+
+#production
+/buil
+
+#miss
+.DS_store
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+.env
+
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+echo "final/T-T/esp32cam/esp32cam-control/" >> .gitignore
+
+git rm -r --cached final/T-T/esp32cam/esp32cam-control/
+
