@@ -1,0 +1,450 @@
+<!doctype html>
+<html>
+
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Face Recognition Access Control</title>
+  <style>
+    @media only screen and (min-width: 850px) {
+      body {
+        display: flex;
+      }
+
+      #content-right {
+        margin-left: 10px;
+      }
+    }
+
+    body {
+      font-family: "Roboto", sans-serif;
+      background: #fff;
+      color: #EFEFEF;
+      font-size: 16px;
+      display: flex;
+      justify-content: center;
+    }
+
+    .header {
+      width: 1530px;
+      position: fixed;
+      top: 0;
+      left: 0;
+      margin-bottom: 20px;
+      display: flex;
+      justify-content: space-around;
+      background: #A6E7FF;
+      color: #000;
+      align-items: center;
+      height: 50px;
+      box-shadow: rgba(50, 50, 93, 0.25) 0px 2px 5px -1px, rgba(0, 0, 0, 0.3) 0px 1px 3px -1px;
+    }
+
+    .header .group {
+      margin-left: 25px;
+      font-weight: 600;
+      margin-right: 375px;
+    }
+
+    .header .wellcome {
+      font-weight: 600;
+      margin-right: 320px;
+    }
+
+    .header a {
+      text-decoration: none;
+      color: #000;
+    }
+
+    .header a .navigate {
+      background: #4CBFE4;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      font-weight: 600;
+      width: 220px;
+      border-radius: 20px;
+    }
+
+    .header a .navigate:hover {
+      background: #4cbee499;
+    }
+
+    .body {
+      margin-top: 50px;
+      display: flex;
+      width: 1256px;
+    }
+
+    #content-left {
+      max-width: 636px;
+      margin-right: 20px;
+      flex: 1;
+    }
+
+    #content-right {
+      max-width: 600px;
+      flex: 1;
+    }
+
+    #stream {
+      width: 100%;
+    }
+
+    #status-display {
+      height: 20px;
+      border: none;
+      padding: 10px;
+      font: 18px/22px sans-serif;
+      margin-bottom: 10px;
+      border-radius: 18px;
+      background: #A6E7FF;
+      text-align: center;
+      width: 450px;
+      margin-left: 75px;
+      margin-top: 40px;
+    }
+
+    .buttons-sd {
+      display: flex;
+      justify-content: space-around;
+      margin-top: 60px;
+      margin-bottom: 45px;
+    }
+
+    .buttons-sd .button-first {
+      width: 200px;
+      height: 40px;
+      background: #ADEFFF;
+      border: none;
+      border-radius: 15px;
+      font-weight: 600;
+    }
+
+    .buttons-sd .button-first:hover {
+      background: #adefff83;
+    }
+
+    .buttons-add {
+      display: flex;
+    }
+
+    .buttons-add .btn-adduser {
+      display: flex;
+      margin-bottom: 45px;
+      color: #000;
+    }
+
+    .buttons-add .btn-adduser .add-user {
+      margin-left: 50px;
+      background: #92CEF9;
+      width: 150px;
+      height: 40px;
+      border: none;
+      border-radius: 15px;
+      font-weight: 600;
+    }
+
+    .buttons-add .btn-adduser .add-user:hover {
+      background: #92cef986;
+    }
+
+    .buttons-add .btn-adduser #person {
+      margin-left: 50px;
+      height: 35px;
+      width: 285px;
+      border-radius: 20px;
+      padding-left: 15px;
+      border: solid 1px #ddd;
+    }
+
+    .buttons-add .btn-adduser #person:focus {
+      outline: none;
+      border: solid 1px #ddd;
+    }
+
+    .people {
+      margin-bottom: 45px;
+    }
+
+    .people h3 {
+      font-size: 14px;
+      color: #000;
+      margin-left: 60px;
+    }
+
+    .people ul {
+      margin-left: 75px;
+      color: #000;
+      font-size: 16px;
+    }
+
+    .people ul li {
+      padding: 15px;
+      background: #9AEFDC;
+      border-radius: 15px;
+    }
+
+    .buttons-control {
+      margin-bottom: 45px;
+    }
+
+    .buttons-control h3 {
+      font-size: 14px;
+      color: #000;
+      margin-left: 60px;
+      margin-bottom: 25px;
+    }
+
+    .buttons-control .access {
+      width: 175px;
+      margin-left: 75px;
+      height: 35px;
+      border-radius: 10px;
+      border: none;
+      background: #AEDFFF;
+      font-size: 14px;
+      font-weight: 600;
+      margin-right: 50px;
+    }
+
+    .buttons-control .access:hover {
+      background: #aedfff99;
+    }
+
+    .buttons-control .open {
+      height: 35px;
+      border-radius: 10px;
+      width: 80px;
+      background: #AAFFB9;
+      border: none;
+      font-size: 14px;
+      font-weight: 600;
+      margin-right: 50px;
+    }
+
+    .buttons-control .open:hover {
+      background: #aaffbaa0;
+    }
+
+    .buttons-control .close {
+      height: 35px;
+      border-radius: 10px;
+      width: 80px;
+      background: #ED7064;
+      border: none;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .buttons-control .close:hover {
+      background: #ed6f64a0;
+    }
+
+    .button-firebase .firebase {
+      background: #AEDFFF;
+      width: 200px;
+      height: 35px;
+      border: none;
+      border-radius: 20px;
+      font-weight: 600;
+      margin-left: 80px;
+      margin-right: 90px;
+    }
+
+    .button-firebase .firebase:hover {
+      background: #aedfff95;
+    }
+
+    .button-firebase #delete_all {
+      width: 150px;
+      height: 35px;
+      border: none;
+      border-radius: 15px;
+      background: orangered;
+      font-size: 14px;
+      font-weight: 600;
+      margin-bottom: 45px;
+    }
+
+    .button-firebase #delete_all:hover {
+      background: rgba(255, 68, 0, 0.629);
+    }
+
+    button:disabled {
+      cursor: default;
+      background: #a0a0a0;
+    }
+
+    .image-container {
+      position: relative;
+      width: 320px;
+      height: 240px;
+      margin-left: 150px;
+      margin-top: 30px;
+    }
+
+    .stream {
+      max-width: 320px;
+    }
+
+    .delete {
+      background: #ff3034;
+      border-radius: 100px;
+      color: #fff;
+      text-align: center;
+      line-height: 18px;
+      cursor: pointer;
+    }
+
+    h3 {
+      margin-bottom: 3px;
+    }
+  </style>
+</head>
+
+<body>
+  <div class="container">
+    <div class="header">
+      <div class="group">
+        GROUP 5
+      </div>
+      <div class="wellcome">
+        HELLO! WELLCOME TO MY HOME🏡
+      </div>
+      <a href="https://blynk.cloud/dashboard/753673/global/devices/1/organization/753673/devices/3300331/dashboard"
+        target="_blank">
+        <div class="navigate">GO TO CONTROL MY HOME</div>
+      </a>
+    </div>
+    <div class="body">
+      <div id="content-left">
+        <div id="status-display"> <span id="current-status"></span> </div>
+        <div id="stream-container" class="image-container"> <img id="stream" src=""> </div>
+      </div>
+      <div id="content-right">
+        <div class="buttons-sd">
+          <button id="button-stream" class="button-first">STREAM CAMERA</button>
+          <button id="button-detect" class="button-first">DETECT FACES</button>
+        </div>
+        <div class="buttons-add">
+          <div class="btn-adduser">
+            <button id="button-capture" class="add-user" title="Enter a name above before capturing a face">ADD
+              USER</button>
+            <div id="person-name">
+              <input id="person" type="text" value="" placeholder="Type the person's name here">
+            </div>
+          </div>
+        </div>
+        <div class="people">
+        </div>
+        <div class="buttons-control">
+          <h3>STATEMENT OF THE DOOR 🚪</h3>
+          <button id="button-recognise" class="access">ACCESS CONTROL</button>
+          <button id="button-open" class="open">OPEN🔓</button>
+          <button id="button-close" class="close">CLOSE🔐</button>
+        </div>
+        <div class="button-firebase">
+          <a href="https://io.adafruit.com/tulee/overview" target="_blank"><button
+              class="firebase">Adafruit🌸</button></a>
+          <button id="delete_all">DELETE ALL</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  </div>
+  <script>
+    document.addEventListener("DOMContentLoaded", function (event) {
+      var baseHost = document.location.origin;
+      var streamUrl = baseHost + ":82";
+      const WS_URL = "ws://" + window.location.host + ":82";
+      const ws = new WebSocket(WS_URL);
+
+      const view = document.getElementById("stream");
+      const personFormField = document.getElementById("person");
+      const streamButton = document.getElementById("button-stream");
+      const detectButton = document.getElementById("button-detect");
+      const captureButton = document.getElementById("button-capture");
+      const recogniseButton = document.getElementById("button-recognise");
+      const deleteAllButton = document.getElementById("delete_all");
+      const openDoorButton = document.getElementById("button-open");
+      const closeDoorButton = document.getElementById("button-close");
+
+      ws.onopen = () => {
+        console.log(`Connected to ${WS_URL}`);
+      };
+      ws.onmessage = message => {
+        if (typeof message.data === "string") {
+          if (message.data.substr(0, 8) == "listface") {
+            addFaceToScreen(message.data.substr(9));
+          } else if (message.data == "delete_faces") {
+            deleteAllFacesFromScreen();
+          } else if (message.data == "door_open") {
+            alertSound(10, 233, 100); alertSound(3, 603, 200);
+          } else {
+            document.getElementById("current-status").innerHTML = message.data;
+            document.getElementById("status-display").style.background = "green";
+          }
+        }
+        if (message.data instanceof Blob) {
+          var urlObject = URL.createObjectURL(message.data);
+          view.src = urlObject;
+        }
+      }
+
+      streamButton.onclick = () => {
+        ws.send("stream");
+      };
+      detectButton.onclick = () => {
+        ws.send("detect");
+      };
+      captureButton.onclick = () => {
+        person_name = document.getElementById("person").value;
+        ws.send("capture:" + person_name);
+      };
+      recogniseButton.onclick = () => {
+        ws.send("recognise");
+      };
+      deleteAllButton.onclick = () => {
+        ws.send("delete_all");
+      };
+      personFormField.onkeyup = () => {
+        captureButton.disabled = false;
+      };
+      openDoorButton.onclick = () => {
+        ws.send("open_door");
+      }
+      closeDoorButton.onclick = () => {
+        ws.send("close_door");
+      }
+      function deleteAllFacesFromScreen() {
+        const faceList = document.querySelector("ul");
+        while (faceList.firstChild) {
+          faceList.firstChild.remove();
+        }
+        personFormField.value = "";
+        captureButton.disabled = true;
+      }
+
+      function addFaceToScreen(person_name) {
+        const faceList = document.querySelector("ul");
+        let listItem = document.createElement("li");
+        let closeItem = document.createElement("span");
+        closeItem.classList.add("delete");
+        closeItem.id = person_name;
+        closeItem.addEventListener("click", function () {
+          ws.send("remove:" + person_name);
+        });
+        listItem.appendChild(document.createElement("strong")).textContent = person_name;
+        listItem.appendChild(closeItem).textContent = "X";
+        faceList.appendChild(listItem);
+      }
+
+      captureButton.disabled = true;
+    });
+  </script>
+</body>
+
+</html>
