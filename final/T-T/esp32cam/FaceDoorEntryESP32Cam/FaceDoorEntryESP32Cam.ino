@@ -30,7 +30,7 @@ bool doorState = false;
 
 #define AIO_USERNAME    ""
 #define AIO_KEY         ""
-#define FEED_NAME       "captrue"
+#define FEED_NAME       "capture"
 
 #define ENROLL_CONFIRM_TIMES 5
 #define FACE_ID_SAVE_NUMBER 7
